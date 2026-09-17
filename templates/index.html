@@ -1,47 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>YOLO Object Detection</title>
+
     <style>
+
         * {
             box-sizing: border-box;
         }
+
         body {
             margin: 0;
             font-family: Arial, sans-serif;
             background: #f4f4f4;
             color: #222;
         }
+
         .container {
             max-width: 1100px;
             margin: 40px auto;
             padding: 20px;
             text-align: center;
         }
+
         h1 {
             margin-bottom: 25px;
         }
-        .video-container {
+
+        .camera-container {
             position: relative;
             width: 100%;
             max-width: 900px;
             margin: auto;
-            background: black;
+            background: #000;
             border-radius: 10px;
             overflow: hidden;
         }
+
+        /*
+         * SHOW THE WEBCAM
+         */
         #video {
-            display: none;
-        }
-        #output {
             width: 100%;
             display: block;
         }
+
+        /*
+         * YOLO OUTPUT
+         */
+        #output {
+            width: 100%;
+            display: none;
+        }
+
         .controls {
             margin: 20px 0;
         }
+
         button {
             padding: 12px 25px;
             border: none;
@@ -50,18 +69,26 @@
             font-size: 16px;
             margin: 5px;
         }
-        #startBtn { 
+
+        #startBtn {
             background: #28a745;
             color: white;
         }
+
         #stopBtn {
             background: #dc3545;
             color: white;
         }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
         .status {
             margin: 15px;
             font-weight: bold;
         }
+
         .detections {
             margin-top: 25px;
             background: white;
@@ -69,213 +96,515 @@
             border-radius: 10px;
             text-align: left;
         }
+
         .detection-item {
-            padding: 8px;
+            padding: 10px;
             border-bottom: 1px solid #ddd;
         }
 
         .detection-item:last-child {
             border-bottom: none;
         }
+
+        .error {
+            color: red;
+        }
+
     </style>
+
 </head>
+
+
 <body>
+
 <div class="container">
+
     <h1>YOLO Object Detection</h1>
-    <!-- Webcam -->
-    <div class="video-container">
+
+
+    <!-- CAMERA -->
+    <div class="camera-container">
+
         <video
             id="video"
             autoplay
             playsinline>
         </video>
+
+        <!-- YOLO processed image -->
         <img
             id="output"
             alt="YOLO Detection Output">
+
     </div>
+
+
+    <!-- BUTTONS -->
+
     <div class="controls">
-        <button id="startBtn">Start Camera</button>
-        <button id="stopBtn">Stop Camera</button>
+
+        <button id="startBtn">
+            Start Camera
+        </button>
+
+        <button id="stopBtn">
+            Stop Camera
+        </button>
+
     </div>
-    <div class="status" id="status">
+
+
+    <!-- STATUS -->
+
+    <div
+        class="status"
+        id="status">
+
         Camera stopped
+
     </div>
+
+
+    <!-- DETECTIONS -->
+
     <div class="detections">
+
         <h2>Detected Objects</h2>
+
         <div id="detectionList">
             No objects detected
         </div>
+
     </div>
+
+
+    <!-- Hidden canvas -->
+
+    <canvas
+        id="canvas"
+        style="display:none;">
+    </canvas>
+
 </div>
-<!-- Hidden canvas used to capture webcam frames -->
-<canvas id="canvas" style="display:none;"></canvas>
+
+
 <script>
-    const video = document.getElementById("video");
-    const output = document.getElementById("output");
-    const canvas = document.getElementById("canvas");
 
-    const startBtn = document.getElementById("startBtn");
-    const stopBtn = document.getElementById("stopBtn");
+const video =
+    document.getElementById("video");
 
-    const status = document.getElementById("status");
-    const detectionList = document.getElementById("detectionList");
+const output =
+    document.getElementById("output");
 
-    let stream = null;
-    let detecting = false;
+const canvas =
+    document.getElementById("canvas");
+
+const startBtn =
+    document.getElementById("startBtn");
+
+const stopBtn =
+    document.getElementById("stopBtn");
+
+const status =
+    document.getElementById("status");
+
+const detectionList =
+    document.getElementById("detectionList");
 
 
-    // Start camera
-    startBtn.addEventListener("click", async () => {
+let stream = null;
 
-        try {
+let detecting = false;
 
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
+let processing = false;
+
+
+// =====================================
+// START CAMERA
+// =====================================
+
+startBtn.addEventListener("click", async () => {
+
+    try {
+
+        console.log("Requesting camera...");
+
+        stream =
+            await navigator.mediaDevices.getUserMedia({
+
+                video: {
+                    width: 640,
+                    height: 480
+                },
+
                 audio: false
+
             });
 
-            video.srcObject = stream;
+
+        video.srcObject = stream;
+
+
+        status.innerText =
+            "Camera started";
+
+
+        console.log(
+            "Camera started successfully"
+        );
+
+
+        /*
+         * Wait until video has dimensions
+         */
+
+        video.onloadedmetadata = () => {
+
+            console.log(
+                "Video dimensions:",
+                video.videoWidth,
+                video.videoHeight
+            );
 
             detecting = true;
 
-            status.innerText = "Camera running - detecting objects...";
+            status.innerText =
+                "Camera running - detecting objects...";
 
             detectFrame();
 
-        } catch (error) {
-
-            console.error(error);
-
-            status.innerText =
-                "Could not access camera: " + error.message;
-        }
-
-    });
+        };
 
 
-    // Stop camera
-    stopBtn.addEventListener("click", () => {
+    } catch (error) {
 
-        detecting = false;
+        console.error(
+            "Camera error:",
+            error
+        );
 
-        if (stream) {
+        status.innerText =
+            "Camera error: " + error.message;
 
-            stream.getTracks().forEach(track => {
-                track.stop();
-            });
+        status.classList.add("error");
 
-            stream = null;
-        }
+    }
 
-        video.srcObject = null;
-
-        status.innerText = "Camera stopped";
-
-    });
+});
 
 
-    // Capture frame and send to Flask
-    async function detectFrame() {
+// =====================================
+// STOP CAMERA
+// =====================================
 
-        if (!detecting || !stream) {
+stopBtn.addEventListener("click", () => {
+
+    detecting = false;
+
+    processing = false;
+
+
+    if (stream) {
+
+        stream
+            .getTracks()
+            .forEach(track => track.stop());
+
+        stream = null;
+
+    }
+
+
+    video.srcObject = null;
+
+
+    output.style.display = "none";
+
+    video.style.display = "block";
+
+
+    status.innerText =
+        "Camera stopped";
+
+
+    detectionList.innerHTML =
+        "No objects detected";
+
+});
+
+
+// =====================================
+// DETECT FRAME
+// =====================================
+
+async function detectFrame() {
+
+    if (!detecting || !stream) {
+        return;
+    }
+
+
+    /*
+     * Don't send another frame while
+     * previous YOLO request is processing.
+     */
+
+    if (processing) {
+
+        setTimeout(
+            detectFrame,
+            50
+        );
+
+        return;
+
+    }
+
+
+    processing = true;
+
+
+    try {
+
+        const width =
+            video.videoWidth;
+
+        const height =
+            video.videoHeight;
+
+
+        if (width === 0 || height === 0) {
+
+            processing = false;
+
+            setTimeout(
+                detectFrame,
+                100
+            );
+
             return;
+
         }
 
-        // Set canvas dimensions
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
 
-        // Draw current video frame
-        const context = canvas.getContext("2d");
+        // Set canvas size
+
+        canvas.width = width;
+
+        canvas.height = height;
+
+
+        // Draw webcam frame
+
+        const context =
+            canvas.getContext("2d");
 
         context.drawImage(
             video,
             0,
             0,
-            canvas.width,
-            canvas.height
+            width,
+            height
         );
 
-        // Convert image to JPEG
-        const image = canvas.toDataURL("image/jpeg", 0.7);
+
+        /*
+         * Convert webcam frame to JPEG
+         */
+
+        const image =
+            canvas.toDataURL(
+                "image/jpeg",
+                0.7
+            );
 
 
-        try {
-
-            const response = await fetch("/detect", {
-
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify({
-                    image: image
-                })
-
-            });
+        console.log(
+            "Sending frame to Flask..."
+        );
 
 
-            const data = await response.json();
+        /*
+         * Send frame to Flask
+         */
+
+        const response =
+            await fetch(
+                "/detect",
+                {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        image: image
+                    })
+
+                }
+            );
 
 
-            if (data.success) {
+        /*
+         * Check HTTP status
+         */
 
-                // Display YOLO annotated image
-                output.src = data.image;
+        if (!response.ok) {
 
-
-                // Display detections
-                displayDetections(data.detections);
-
-            } else {
-
-                console.error(data.error);
-
-            }
-
-        } catch (error) {
-
-            console.error(
-                "Detection request failed:",
-                error
+            throw new Error(
+                "Server returned HTTP " +
+                response.status
             );
 
         }
 
 
-        // Continue detection
-        if (detecting) {
+        const data =
+            await response.json();
 
-            setTimeout(detectFrame, 100);
+
+        console.log(
+            "Flask response:",
+            data
+        );
+
+
+        if (data.success) {
+
+            /*
+             * Show YOLO output
+             */
+
+            output.src =
+                data.image;
+
+            output.style.display =
+                "block";
+
+            video.style.display =
+                "none";
+
+
+            /*
+             * Show detections
+             */
+
+            displayDetections(
+                data.detections
+            );
+
+        } else {
+
+            console.error(
+                "YOLO error:",
+                data.error
+            );
+
+            status.innerText =
+                "YOLO error: " +
+                data.error;
 
         }
+
+
+    } catch (error) {
+
+        console.error(
+            "Detection error:",
+            error
+        );
+
+        status.innerText =
+            "Detection error: " +
+            error.message;
 
     }
 
 
-    // Display detected objects
-    function displayDetections(detections) {
+    processing = false;
 
-        if (!detections || detections.length === 0) {
-            detectionList.innerHTML =
-                "No objects detected";
-            return;
-        }
-        detectionList.innerHTML = "";
-        detections.forEach((detection) => {
+
+    /*
+     * Continue detection
+     */
+
+    if (detecting) {
+
+        setTimeout(
+            detectFrame,
+            100
+        );
+
+    }
+
+}
+
+
+// =====================================
+// DISPLAY DETECTIONS
+// =====================================
+
+function displayDetections(
+    detections
+) {
+
+    if (
+        !detections ||
+        detections.length === 0
+    ) {
+
+        detectionList.innerHTML =
+            "No objects detected";
+
+        return;
+
+    }
+
+
+    detectionList.innerHTML = "";
+
+
+    detections.forEach(
+        (detection) => {
+
             const div =
-                document.createElement("div");
+                document.createElement(
+                    "div"
+                );
+
+
             div.className =
                 "detection-item";
+
+
             div.innerHTML = `
-                <strong>${detection.class_name}</strong>
-                - ${(detection.confidence * 100).toFixed(1)}%
+
+                <strong>
+                    ${detection.class_name}
+                </strong>
+
+                -
+
+                ${(detection.confidence * 100)
+                    .toFixed(1)}%
+
             `;
-            detectionList.appendChild(div);
-        });
-    }
+
+
+            detectionList.appendChild(
+                div
+            );
+
+        }
+    );
+
+}
+
 </script>
+
 </body>
+
 </html>
