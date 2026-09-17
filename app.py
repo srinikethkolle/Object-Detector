@@ -3,15 +3,27 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 import base64
-import os
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
-# Load YOLO model once when the server starts
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "yolov8n.pt")
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "yolov8n.pt"
+)
+
+
+print("Loading model from:")
+print(MODEL_PATH)
+
 
 model = YOLO(MODEL_PATH)
+
+
+print("YOLO model loaded!")
+
+app = Flask(__name__)
 
 @app.route("/")
 def index():
