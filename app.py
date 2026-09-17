@@ -1,6 +1,13 @@
+import os
+
+os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
+
 from flask import Flask, render_template, request, jsonify
 from ultralytics import YOLO
-import os
+
+from flask import Flask, render_template, request, jsonify
+from ultralytics import YOLO
+
 import cv2
 import numpy as np
 import base64
