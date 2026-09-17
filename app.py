@@ -4,116 +4,262 @@ import os
 import cv2
 import numpy as np
 import base64
+import time
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
+# ==========================================
+# LOAD YOLO MODEL
+# ==========================================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_PATH = os.path.join(
     BASE_DIR,
     "yolov8n.pt"
 )
 
-
-print("Loading model from:")
-print(MODEL_PATH)
-
+print("===================================")
+print("Loading YOLO model")
+print("Model:", MODEL_PATH)
+print("===================================")
 
 model = YOLO(MODEL_PATH)
 
+print("YOLO model loaded successfully!")
 
-print("YOLO model loaded!")
+
+# ==========================================
+# HOME
+# ==========================================
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+# ==========================================
+# HEALTH CHECK
+# ==========================================
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "model": "YOLOv8n"
+    })
+
+
+# ==========================================
+# OBJECT DETECTION
+# ==========================================
+
 @app.route("/detect", methods=["POST"])
 def detect():
+
+    start_time = time.time()
+
     try:
+
         data = request.get_json()
 
-        if not data or "image" not in data:
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No JSON data received"
+            }), 400
+
+        if "image" not in data:
             return jsonify({
                 "success": False,
                 "error": "No image received"
             }), 400
 
-        # Remove the "data:image/jpeg;base64," part
-        image_data = data["image"].split(",")[1]
 
-        # Decode base64 image
+        # ==================================
+        # DECODE IMAGE
+        # ==================================
+
+        image_data = data["image"]
+
+        # Handle:
+        # data:image/jpeg;base64,XXXX
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+
         image_bytes = base64.b64decode(image_data)
 
-        # Convert bytes to NumPy array
-        np_arr = np.frombuffer(image_bytes, np.uint8)
+        np_arr = np.frombuffer(
+            image_bytes,
+            np.uint8
+        )
 
-        # Convert to OpenCV image
-        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        frame = cv2.imdecode(
+            np_arr,
+            cv2.IMREAD_COLOR
+        )
 
         if frame is None:
+
             return jsonify({
                 "success": False,
                 "error": "Could not decode image"
             }), 400
 
-        # Run YOLO detection
-        results = model(frame)
 
-        # Draw detections
-        annotated = results[0].plot()
+        # ==================================
+        # YOLO DETECTION
+        # ==================================
 
-        # Encode annotated frame as JPEG
-        success, buffer = cv2.imencode(".jpg", annotated)
+        results = model.predict(
+            source=frame,
+            conf=0.20,
+            imgsz=640,
+            verbose=False
+        )
+
+
+        result = results[0]
+
+
+        # ==================================
+        # DRAW DETECTIONS
+        # ==================================
+
+        annotated = result.plot()
+
+
+        # ==================================
+        # DETECTION DATA
+        # ==================================
+
+        detections = []
+
+        if result.boxes is not None:
+
+            for box in result.boxes:
+
+                class_id = int(
+                    box.cls[0]
+                )
+
+                confidence = float(
+                    box.conf[0]
+                )
+
+                class_name = model.names[
+                    class_id
+                ]
+
+                detections.append({
+
+                    "class_id": class_id,
+
+                    "class_name":
+                        class_name,
+
+                    "confidence":
+                        round(
+                            confidence,
+                            3
+                        )
+
+                })
+
+
+        # ==================================
+        # ENCODE OUTPUT IMAGE
+        # ==================================
+
+        success, buffer = cv2.imencode(
+            ".jpg",
+            annotated,
+            [
+                cv2.IMWRITE_JPEG_QUALITY,
+                80
+            ]
+        )
 
         if not success:
+
             return jsonify({
                 "success": False,
                 "error": "Could not encode image"
             }), 500
 
-        # Convert to base64
+
         output_image = base64.b64encode(
             buffer.tobytes()
         ).decode("utf-8")
 
-        # Get detection information
-        detections = []
 
-        result = results[0]
+        processing_time = (
+            time.time() - start_time
+        )
 
-        if result.boxes is not None:
-            for box in result.boxes:
-                class_id = int(box.cls[0])
-                confidence = float(box.conf[0])
 
-                detections.append({
-                    "class_id": class_id,
-                    "class_name": model.names[class_id],
-                    "confidence": round(confidence, 2)
-                })
+        print(
+            f"Detection completed: "
+            f"{len(detections)} objects | "
+            f"{processing_time:.2f}s"
+        )
+
+
+        # ==================================
+        # RESPONSE
+        # ==================================
 
         return jsonify({
+
             "success": True,
-            "image": "data:image/jpeg;base64," + output_image,
-            "detections": detections
+
+            "image":
+                "data:image/jpeg;base64,"
+                + output_image,
+
+            "detections":
+                detections,
+
+            "processing_time":
+                round(
+                    processing_time,
+                    2
+                )
+
         })
 
+
     except Exception as e:
-        print("Error:", e)
+
+        print(
+            "Detection error:",
+            repr(e)
+        )
 
         return jsonify({
+
             "success": False,
+
             "error": str(e)
+
         }), 500
 
 
+# ==========================================
+# LOCAL DEVELOPMENT
+# ==========================================
+
 if __name__ == "__main__":
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
+
     app.run(
         host="0.0.0.0",
-        port=5000,
-        debug=True
+        port=port,
+        debug=False
     )
