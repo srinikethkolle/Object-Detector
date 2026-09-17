@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 import base64
 
+app = Flask(__name__)
+
 BASE_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
@@ -22,8 +24,6 @@ model = YOLO(MODEL_PATH)
 
 
 print("YOLO model loaded!")
-
-app = Flask(__name__)
 
 @app.route("/")
 def index():
