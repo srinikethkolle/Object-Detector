@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Object Detection</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            color: #222;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 40px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 {
+            margin-bottom: 25px;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin: auto;
+            background: black;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #video {
+            display: none;
+        }
+        #output {
+            width: 100%;
+            display: block;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        #startBtn { 
+            background: #28a745;
+            color: white;
+        }
+        #stopBtn {
+            background: #dc3545;
+            color: white;
+        }
+        .status {
+            margin: 15px;
+            font-weight: bold;
+        }
+        .detections {
+            margin-top: 25px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: left;
+        }
+        .detection-item {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .detection-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>YOLO Object Detection</h1>
+    <!-- Webcam -->
+    <div class="video-container">
+        <video
+            id="video"
+            autoplay
+            playsinline>
+        </video>
+        <img
+            id="output"
+            alt="YOLO Detection Output">
+    </div>
+    <div class="controls">
+        <button id="startBtn">Start Camera</button>
+        <button id="stopBtn">Stop Camera</button>
+    </div>
+    <div class="status" id="status">
+        Camera stopped
+    </div>
+    <div class="detections">
+        <h2>Detected Objects</h2>
+        <div id="detectionList">
+            No objects detected
+        </div>
+    </div>
+</div>
+<!-- Hidden canvas used to capture webcam frames -->
+<canvas id="canvas" style="display:none;"></canvas>
+<script>
+    const video = document.getElementById("video");
+    const output = document.getElementById("output");
+    const canvas = document.getElementById("canvas");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+
+    const status = document.getElementById("status");
+    const detectionList = document.getElementById("detectionList");
+
+    let stream = null;
+    let detecting = false;
+
+
+    // Start camera
+    startBtn.addEventListener("click", async () => {
+
+        try {
+
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false
+            });
+
+            video.srcObject = stream;
+
+            detecting = true;
+
+            status.innerText = "Camera running - detecting objects...";
+
+            detectFrame();
+
+        } catch (error) {
+
+            console.error(error);
+
+            status.innerText =
+                "Could not access camera: " + error.message;
+        }
+
+    });
+
+
+    // Stop camera
+    stopBtn.addEventListener("click", () => {
+
+        detecting = false;
+
+        if (stream) {
+
+            stream.getTracks().forEach(track => {
+                track.stop();
+            });
+
+            stream = null;
+        }
+
+        video.srcObject = null;
+
+        status.innerText = "Camera stopped";
+
+    });
+
+
+    // Capture frame and send to Flask
+    async function detectFrame() {
+
+        if (!detecting || !stream) {
+            return;
+        }
+
+        // Set canvas dimensions
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        // Draw current video frame
+        const context = canvas.getContext("2d");
+
+        context.drawImage(
+            video,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        // Convert image to JPEG
+        const image = canvas.toDataURL("image/jpeg", 0.7);
+
+
+        try {
+
+            const response = await fetch("/detect", {
+
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify({
+                    image: image
+                })
+
+            });
+
+
+            const data = await response.json();
+
+
+            if (data.success) {
+
+                // Display YOLO annotated image
+                output.src = data.image;
+
+
+                // Display detections
+                displayDetections(data.detections);
+
+            } else {
+
+                console.error(data.error);
+
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Detection request failed:",
+                error
+            );
+
+        }
+
+
+        // Continue detection
+        if (detecting) {
+
+            setTimeout(detectFrame, 100);
+
+        }
+
+    }
+
+
+    // Display detected objects
+    function displayDetections(detections) {
+
+        if (!detections || detections.length === 0) {
+            detectionList.innerHTML =
+                "No objects detected";
+            return;
+        }
+        detectionList.innerHTML = "";
+        detections.forEach((detection) => {
+            const div =
+                document.createElement("div");
+            div.className =
+                "detection-item";
+            div.innerHTML = `
+                <strong>${detection.class_name}</strong>
+                - ${(detection.confidence * 100).toFixed(1)}%
+            `;
+            detectionList.appendChild(div);
+        });
+    }
+</script>
+</body>
+</html>
